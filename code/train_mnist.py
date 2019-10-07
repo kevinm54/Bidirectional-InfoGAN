@@ -6,6 +6,7 @@ import datetime
 import dateutil.tz
 import argparse
 from shutil import copyfile
+import time
 
 import tensorflow as tf
 from tensorflow.examples.tutorials.mnist import input_data
@@ -36,7 +37,7 @@ mnist_validation = np.reshape(mnist_validation, [5000, 28, 28, 1])
 
 # Hyperparameters
 BATCH_SIZE = args.batch_size
-MAX_ITER = 30000                    # maximum number of iterations
+MAX_ITER = 30005                    # maximum number of iterations
 IMG_WIDTH, IMG_HEIGHT = 28, 28      # image dimensions
 IMG_CHANNELS = 1                    # image channels
 LR_D = args.lr_d                    # learning rate discriminator
@@ -61,7 +62,9 @@ C_DIM = num_disc_vars + CONT_VARS   # dimensionality of the c vector (input to G
 now = datetime.datetime.now(dateutil.tz.tzlocal())
 timestamp = now.strftime('%Y_%m_%d_%H_%M_%S')
 
-log_dir = "log_dir/mnist/mnist_" + timestamp
+src_dir = os.path.dirname(__file__)
+base_dir = os.path.join(src_dir, "../")
+log_dir = base_dir + "/log_dir/mnist/mnist_" + timestamp
 
 if not os.path.exists(log_dir):
     os.makedirs(log_dir)
@@ -70,7 +73,7 @@ if not os.path.exists(log_dir+"/samples_cont"):
 if not os.path.exists(log_dir+"/samples_disc"):
     os.makedirs(log_dir+"/samples_disc")
 
-with open(log_dir + "/hyperparameters_"+timestamp+".csv", "wb") as f:
+with open(log_dir + "/hyperparameters_"+timestamp+".csv", "w") as f:
     for arg in args.__dict__:
         f.write(arg + "," + str(args.__dict__[arg]) + "\n")
     f.write("num categorical classes," + str(DISC_VARS) + "\n")
@@ -321,6 +324,7 @@ sess.run(tf.global_variables_initializer())
 summary_writer = tf.summary.FileWriter(log_dir, sess.graph)
 
 print("Start training")
+t0 = time.time()
 for iteration in range(1, MAX_ITER + 1):
     # sample next MNIST batch
     X_mb, _ = mnist.train.next_batch(BATCH_SIZE)
@@ -334,8 +338,13 @@ for iteration in range(1, MAX_ITER + 1):
                                               feed_dict={X: X_mb, z: z_mb, c: c_mb, 'phase:0': 1})
 
     # visualize training progress
-    if iteration % 5000 == 0:
-        print("Iteration: {}; D_loss: {:.4}; G_loss: {:.4}".format(iteration, D_loss_curr, G_loss_curr))
+    if iteration % 10 == 0:
+        print("Iteration: %d; D_loss: %0.4f; G_loss: %0.4f; time: %ds" %
+            (iteration, D_loss_curr, G_loss_curr, time.time()-t0))
+    
+    if iteration % 1000 == 0:
+        print("Iteration: %d; D_loss: %0.4f; G_loss: %0.4f; time: %ds" %
+            (iteration, D_loss_curr, G_loss_curr, time.time()-t0))
 
         # visualize scalars
         summary = sess.run(summary_op_scalar, feed_dict={X: X_mb, z: z_mb, c: c_mb, 'phase:0': 1})
@@ -343,8 +352,8 @@ for iteration in range(1, MAX_ITER + 1):
         # visualize categorical variables via Tensorboard
         summary_cat = []
         for idx in range(len(DISC_VARS)):
-            z_mb = sample_z_fixed(128, Z_DIM)
-            c_test = sample_c_cat(128, disc_var=idx)
+            z_mb = sample_z_fixed(BATCH_SIZE, Z_DIM)
+            c_test = sample_c_cat(BATCH_SIZE, disc_var=idx)
             z_tmp, _, _summary_cat = sess.run([Z_hat, X_hat, summary_ops_cat[idx]],
                                            feed_dict={X: X_mb, z: z_mb, c: c_test, 'phase:0': 0})
             summary_cat.append(_summary_cat)
@@ -352,7 +361,7 @@ for iteration in range(1, MAX_ITER + 1):
         # visualize continuous variables via Tensorboard
         summary_cont = []
         for idx in range(CONT_VARS):
-            z_mb = sample_z_fixed(128, Z_DIM)
+            z_mb = sample_z_fixed(BATCH_SIZE, Z_DIM)
             c_const = [_ for _ in range(CONT_VARS) if _ != idx]
             c_test = sample_c_cont(c_var=idx, c_const=c_const)
             _, _, _summary_cont = sess.run([Z_hat, X_hat, summary_ops_cont[idx]],
@@ -372,6 +381,25 @@ for iteration in range(1, MAX_ITER + 1):
             encodings[idx_tmp * 1000:idx_tmp * 1000 + 1000] = encodings_tmp
         sample_cont_test_set(encodings, iteration, mnist_validation, log_dir)
         sample_disc_test_set(encodings, iteration, mnist_validation, log_dir, Z_DIM)
+        
+        # Visualize generated images (save to file)
+        vis_col_count = 10
+        num_gen_images = sum(DISC_VARS)*vis_col_count
+        gen_imgs_cat = []
+        for idx in range(len(DISC_VARS)):
+            z_mb = sample_z_fixed(num_gen_images, Z_DIM)
+            c_test = sample_c_cat(num_gen_images, disc_var=idx)
+            gen_imgs = sess.run(X_hat, feed_dict={z: z_mb, c: c_test, 'phase:0': 0})
+            gen_imgs_cat.append(gen_imgs)
+        gen_imgs_cont = []
+        num_gen_images = vis_col_count
+        for idx in range(CONT_VARS):
+            z_mb = sample_z_fixed(num_gen_images, Z_DIM)
+            c_const = [_ for _ in range(CONT_VARS) if _ != idx]
+            c_test = sample_c_cont(sample_count=num_gen_images, c_var=idx, c_const=c_const)
+            gen_imgs = sess.run(X_hat, feed_dict={z: z_mb, c: c_test, 'phase:0': 0})
+            gen_imgs_cont.append(gen_imgs)
+        sample_gen_images(gen_imgs_cat, gen_imgs_cont, iteration, log_dir, Z_DIM, DISC_VARS, CONT_VARS)
 
         summary_writer.add_summary(summary, iteration)
         for summ in summary_cat:

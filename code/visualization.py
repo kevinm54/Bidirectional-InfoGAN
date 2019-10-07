@@ -2,6 +2,8 @@ import matplotlib
 matplotlib.use('Agg')
 from matplotlib import pyplot as plt
 
+import os
+
 from utils import *
 
 def summary_cat(gen_imgs, disc_classes=[10]):
@@ -9,9 +11,9 @@ def summary_cat(gen_imgs, disc_classes=[10]):
     summary_ops_disc = []
     for idx in range(len(disc_classes)):
         stacked_img = []
-        for row in xrange(10):
+        for row in range(10):
             row_img = []
-            for col in xrange(10):
+            for col in range(10):
                 row_img.append(gen_imgs[(row * 10) + col, :, :, :])
             stacked_img.append(tf.concat(row_img, 1))
         imgs = tf.concat(stacked_img, 0)
@@ -26,9 +28,9 @@ def summary_cont(gen_imgs, num_cont_vars=2):
     for idx in range(num_cont_vars):
         # gen_imgs = tf.reshape(gen_imgs, [-1, 28, 28, 1])
         stacked_img = []
-        for row in xrange(5):
+        for row in range(5):
             row_img = []
-            for col in xrange(10):
+            for col in range(10):
                 row_img.append(gen_imgs[(row * 10) + col, :, :, :])
             stacked_img.append(tf.concat(row_img, 1))
         imgs = tf.concat(stacked_img, 0)
@@ -40,9 +42,9 @@ def summary_cont(gen_imgs, num_cont_vars=2):
 def summary_recon(real_imgs, recons_imgs):
     # image logging, E(G(z))
     stacked_img = []
-    for row in xrange(5):
+    for row in range(5):
         row_img = []
-        for col in xrange(10):
+        for col in range(10):
             row_img.append(real_imgs[(row * 10) + col, :, :, :])
             row_img.append(recons_imgs[(row * 10) + col, :, :, :])
         stacked_img.append(tf.concat(row_img, 1))
@@ -174,3 +176,50 @@ def sample_disc_test_set(encodings, it, mnist_test, log_dir, z_dim):
         plt.close()
 
     create_image(disc1_idx, "1")
+
+
+def sample_gen_images(
+        gen_imgs_cat,
+        gen_imgs_cont,
+        iteration,
+        log_dir,
+        z_dim = 16,
+        disc_vars = [10],
+        cont_vars = 2):
+    
+    assert(disc_vars[0] is 10)
+    assert(cont_vars is 2)
+    assert(z_dim is 16)
+    assert(os.path.exists(log_dir))
+    
+    os.makedirs(log_dir + "/samples_gen/", exist_ok=True)
+    
+    for var_id in range(cont_vars):
+        gen_imgs = gen_imgs_cont[var_id]
+        
+        fig, axarr = plt.subplots(1, 10)
+        for col in range(10):
+                img = gen_imgs[col,:,:,:]
+                axarr[col].imshow(np.reshape(img, [28, 28]))
+                axarr[col].set_xticks([])
+                axarr[col].set_yticks([])
+        plt.tight_layout(pad=0.0, h_pad=0.0, w_pad=0.0)
+        plt.subplots_adjust(wspace=0, hspace=0)
+        plt.savefig(log_dir + "/samples_gen/" + str(iteration) + "_continuous_d" + str(var_id) + ".png")
+        plt.close(fig)
+    
+    for var_id in range(len(disc_vars)):
+        gen_imgs = gen_imgs_cat[var_id]
+        
+        fig, axarr = plt.subplots(10, 10)
+        for col in range(10):
+            for row in range(10):
+                id = row + col*10
+                img = gen_imgs[id,:,:,:]
+                axarr[row, col].imshow(np.reshape(img, [28, 28]))
+                axarr[row, col].set_xticks([])
+                axarr[row, col].set_yticks([])
+        plt.tight_layout(pad=0.0, h_pad=0.0, w_pad=0.0)
+        plt.subplots_adjust(wspace=0, hspace=0)
+        plt.savefig(log_dir + "/samples_gen/" + str(iteration) + "_categorical_d" + str(var_id) + ".png")
+        plt.close(fig)
