@@ -24,6 +24,7 @@ parser.add_argument("--evaluate", help="Evaluate accuracy on the test set", acti
 parser.add_argument("--sample", help="Sample from the test set", action='store_true')
 parser.add_argument("--reconstruct", help="Sample from the test set and reconstruct with the Encoder and Generator",
                     action='store_true')
+parser.add_argument("--validate", help="Evaluate on alternative data", type=str, default=None)
 args = parser.parse_args()
 
 model_dir = args.model_dir+"/iteration.ckpt-"+str(args.iteration)
@@ -40,7 +41,7 @@ def read_encodings(path):
 
 
 def read_hyperparameters(path):
-    reader = csv.reader(open(path+"/hyperparameters"+args.model_dir[-20:]+".csv", "rb"))
+    reader = csv.reader(open(path+"/hyperparameters"+args.model_dir[-20:]+".csv", "r"))
     dict = {}
     for row in reader:
         k, v = row
@@ -538,6 +539,41 @@ def generate_new_samples():
     create_image_categorical()
 
 
+# Evaluate the model accuracy on an alternative dataset
+def validate(valid_dir):
+    assert(os.path.exists(valid_dir))
+    
+    encoding = encode(X)
+
+    saver = tf.train.Saver()
+    sess = tf.Session()
+    saver.restore(sess, model_dir)
+    
+    # Read all the image files
+    import glob
+    from PIL import Image
+    import imghdr
+    imgs = []
+    img_files = [f for f in sorted(glob.glob(valid_dir+"/*")) if imghdr.what(f) is not None]
+    for file in img_files:
+        img = Image.open(file).convert('L')
+        img = np.asarray(img)
+        imgs.append(img)
+    imgs = np.expand_dims(imgs, axis=3)
+
+    imgs_encode = sess.run(encoding, feed_dict={X: imgs, phase: 0})
+    
+    cat_encode = imgs_encode[:, Z_DIM:Z_DIM+num_disc_vars]
+    
+    print("cat_encode\n", cat_encode)
+    print("shape cat_encode: ", np.shape(cat_encode))
+    
+    labels = np.argmax(cat_encode, axis=1)
+    for file, label in zip(img_files, labels):
+        print("File <%s>: label %d" % (file, label))
+
+
+
 if args.generate:
     generate_new_samples()
 elif args.evaluate:
@@ -555,6 +591,8 @@ elif args.sample:
     sample_continuous(keys, encodings)
 elif args.reconstruct:
     reconstruct()
+elif args.validate is not None:
+    validate(args.validate)
 else:
     print("No valid option chosen. Choose either \"--generate\", \"--evaluate\", \"--sample\" or \"--reconstruct\".")
     print("Use \"--help\" for an overview of the command line arguments.")
